@@ -2,15 +2,16 @@
 
 A browser-based "mini FPGA tool" that lets users create FPGA projects, generate RTL from natural language, run lightweight simulations, and get AI-powered explanations and debugging help.
 
-**Status**: MVP 1.0  
+**Status**: MVP 1.1  
 **License**: MIT  
-**Demo**: [Live Demo](http://localhost:5173) (local development)
+**Demo**: local development server, usually `http://127.0.0.1:4173/`
 
 ## 🎯 Features
 
 ### Core Functionality
 - ✅ **Create FPGA Projects**: Browser-based project management
 - ✅ **Natural Language RTL**: Describe hardware modules in plain English
+- ✅ **Editable RTL Editor**: Review and edit generated RTL, then save in place or save as a copy
 - ✅ **Auto-Generate Testbenches**: Automatic testbench creation
 - ✅ **Lightweight Simulation**: Mock WASM simulator with real-time progress
 - ✅ **Browser Notifications**: Get alerted when simulations complete
@@ -26,7 +27,7 @@ A browser-based "mini FPGA tool" that lets users create FPGA projects, generate 
 - 🤖 **RTL Explanation**: Understand what your code does
 - 🐛 **Debug Suggestions**: Get help when simulations fail
 - 📚 **Auto-Documentation**: Generate Markdown docs for modules
-- 🔄 **Mock Mode**: Works without API key for demos
+- 🔄 **Live + Mock Modes**: Uses OpenAI Responses API when a key is saved; works without a key for demos
 
 ## 🚀 Quick Start
 
@@ -50,14 +51,15 @@ npm install
 npm run dev
 ```
 
-Open your browser to `http://localhost:5173/`
+Open the URL printed by Vite, usually `http://127.0.0.1:4173/`.
 
 ### First Steps
 
-1. **Create a project** using the "New" button
-2. **Generate RTL** by describing your module
-3. **Run simulation** to test your design
-4. **Export** your work as a ZIP file
+1. **Describe a module** in the first-screen generator
+2. **Review/edit RTL** in the RTL tab and save changes
+3. **Run simulation** to test your design and inspect waveform/run history
+4. **Ask AI Copilot** for explanations, debug suggestions, or docs
+5. **Export** your work as a ZIP file
 
 See [Quick Start Guide](specs/001-mock-fpga-tool/quickstart.md) for detailed instructions.
 
@@ -72,7 +74,7 @@ frontend/
 │   ├── lib/
 │   │   ├── storage.js       # localStorage wrapper with error handling
 │   │   ├── sqlite.js        # sql.js WASM integration
-│   │   ├── openaiClient.js  # AI/mock RTL generation
+│   │   ├── openaiClient.js  # OpenAI/mock RTL generation
 │   │   ├── exportZip.js     # Project export utility
 │   │   ├── notify.js        # Browser notification wrapper
 │   │   └── simulator/       # WASM/mock simulator
@@ -166,30 +168,9 @@ npm run build
 npm run preview
 ```
 
-### Adding Real OpenAI Integration
+### OpenAI Integration
 
-Currently uses **mock responses**. To enable real AI:
-
-1. Ensure API key is set in UI
-2. Update `frontend/src/lib/openaiClient.js`:
-   ```javascript
-   import OpenAI from 'openai'
-   
-   export async function generateRTL(prompt){
-     const apiKey = readApiKey()
-     if(!apiKey) throw new Error('API key required')
-     
-     const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true })
-     const completion = await openai.chat.completions.create({
-       model: 'gpt-4',
-       messages: [
-         { role: 'system', content: 'You are a Verilog RTL expert.' },
-         { role: 'user', content: prompt }
-       ]
-     })
-     return completion.choices[0].message.content
-   }
-   ```
+The app calls the OpenAI Responses API directly from the browser when an API key is saved in AI Settings. Without a key, it falls back to deterministic demo generation so the full workflow remains testable.
 
 ### Adding Real WASM Simulator
 
@@ -205,13 +186,14 @@ Currently uses a **JavaScript mock**. To add a real WASM simulator:
 - **Client-Side Only**: No server, no multi-device sync
 - **Storage Limits**: Browser localStorage has ~5-10MB quota
 - **API Key Security**: Stored in plain text (development only)
-- **Simple AI**: Mock responses unless connected to real OpenAI
+- **Client-side OpenAI calls**: API key is stored in plain browser localStorage for prototype convenience
 
 ## 🗺️ Roadmap
 
 ### Phase 1 (✅ Complete - MVP)
 - [x] Project creation and management
 - [x] Natural language RTL generation
+- [x] Editable RTL editor
 - [x] Testbench generation
 - [x] Mock simulator with notifications
 - [x] AI explanation and debug suggestions

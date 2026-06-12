@@ -449,7 +449,8 @@ button:disabled, input:disabled {
   color: #fecaca;
 }
 
-.code-pane {
+.code-pane,
+.code-editor {
   min-height: 420px;
   margin: 14px 0 0;
   border: 1px solid rgba(255,255,255,0.1);
@@ -460,6 +461,33 @@ button:disabled, input:disabled {
   padding: 18px;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.code-editor {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  outline: none;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.code-editor:focus {
+  border-color: rgba(32, 200, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(32, 200, 255, 0.12);
+}
+
+.editor-shell {
+  min-width: 0;
+}
+
+.editor-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #98a2b3;
+  font-size: 12px;
+  margin-top: 12px;
 }
 
 .sim-log {

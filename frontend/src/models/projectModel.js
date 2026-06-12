@@ -120,6 +120,33 @@ export function saveArtifact(projectId, type, filename, content, metadata={}){
   return art
 }
 
+export function updateArtifact(id, updates){
+  const existing = getArtifact(id)
+  if(!existing) return null
+  const updated = {
+    ...existing,
+    ...updates,
+    type: normalizeArtifactType(updates.type || existing.type),
+    metadata_json: typeof updates.metadata_json === 'string'
+      ? updates.metadata_json
+      : updates.metadata
+        ? JSON.stringify(updates.metadata)
+        : existing.metadata_json,
+    updated_at: now()
+  }
+
+  if(useSql){
+    sqlite.exec(`UPDATE artifacts SET type='${esc(updated.type)}', filename='${esc(updated.filename)}', content='${esc(updated.content)}', metadata_json='${esc(updated.metadata_json || '')}', updated_at='${esc(updated.updated_at)}' WHERE id='${esc(id)}'`)
+    sqlite.exec(`UPDATE projects SET updated_at='${esc(now())}' WHERE id='${esc(updated.project_id)}'`)
+  }else{
+    const artifacts = storage.load(ARTIFACTS_KEY, []).map(artifact=> artifact.id === id ? updated : artifact)
+    storage.save(ARTIFACTS_KEY, artifacts)
+    const projects = storage.load(PROJECTS_KEY, []).map(p=> p.id===updated.project_id ? {...p, updated_at: now()} : p)
+    storage.save(PROJECTS_KEY, projects)
+  }
+  return updated
+}
+
 export function listArtifacts(projectId){
   if(useSql){
     const rows = sqlite.run(`SELECT id,project_id,type,filename,content,metadata_json,created_at,updated_at FROM artifacts WHERE project_id='${esc(projectId)}' ORDER BY created_at ASC`)
@@ -138,7 +165,9 @@ export function getArtifact(id){
 
 export function latestArtifact(projectId, type){
   const targetType = normalizeArtifactType(type)
-  const artifacts = listArtifacts(projectId).filter(a=>a.type===targetType)
+  const artifacts = listArtifacts(projectId)
+    .filter(a=>a.type===targetType)
+    .sort((a,b)=>String(a.updated_at || a.created_at).localeCompare(String(b.updated_at || b.created_at)))
   return artifacts.length ? artifacts[artifacts.length - 1] : null
 }
 
@@ -195,6 +224,7 @@ export default {
   listProjects,
   getProject,
   saveArtifact,
+  updateArtifact,
   listArtifacts,
   getArtifact,
   latestArtifact,

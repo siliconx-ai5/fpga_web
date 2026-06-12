@@ -41,9 +41,84 @@ function renderArtifactCode(artifact, emptyCopy){
   return `<pre class="code-pane">${escapeHtml(artifact.content)}</pre>`
 }
 
+function renderRtlEditor(artifact){
+  if(!artifact) return '<div class="empty-state">Generated RTL will appear here.</div>'
+  return `
+    <div class="editor-shell">
+      <div class="editor-meta">
+        <span>${escapeHtml(artifact.filename)}</span>
+        <span>Updated ${new Date(artifact.updated_at || artifact.created_at).toLocaleString()}</span>
+      </div>
+      <textarea id="rtlEditor" class="code-editor" spellcheck="false" aria-label="Editable RTL source">${escapeHtml(artifact.content)}</textarea>
+    </div>
+  `
+}
+
 function getSelectedRun(projectId, selectedRunId){
   const runs = projectModel.listRuns(projectId)
   return runs.find(run=>run.id === selectedRunId) || projectModel.latestRun(projectId)
+}
+
+function getRtlEditorValue(container){
+  const editor = container.querySelector('#rtlEditor')
+  return editor ? editor.value : null
+}
+
+function rtlHasUnsavedChanges(container, projectId){
+  const value = getRtlEditorValue(container)
+  const rtl = latest(projectId, 'rtl')
+  return value !== null && rtl && value !== rtl.content
+}
+
+function confirmCleanRtl(container, projectId){
+  if(!rtlHasUnsavedChanges(container, projectId)) return true
+  return window.confirm('Discard unsaved RTL edits?')
+}
+
+function filenameWithCopySuffix(filename){
+  const dot = filename.lastIndexOf('.')
+  if(dot <= 0) return `${filename}_copy`
+  return `${filename.slice(0, dot)}_copy_${Date.now()}${filename.slice(dot)}`
+}
+
+function parseMetadata(json){
+  try{
+    return json ? JSON.parse(json) : {}
+  }catch(e){
+    return {}
+  }
+}
+
+function saveRtlEdit(projectId, container, state, onBack, saveAsCopy){
+  try{
+    const rtl = latest(projectId, 'rtl')
+    const content = getRtlEditorValue(container)
+    if(!rtl || content === null) return
+
+    if(saveAsCopy){
+      const metadata = parseMetadata(rtl.metadata_json)
+      projectModel.saveArtifact(projectId, 'rtl', filenameWithCopySuffix(rtl.filename), content, {
+        ...metadata,
+        editedFromArtifactId: rtl.id,
+        edited_at: new Date().toISOString()
+      })
+      state.message = 'RTL saved as a new copy.'
+    }else{
+      const metadata = parseMetadata(rtl.metadata_json)
+      projectModel.updateArtifact(rtl.id, {
+        content,
+        metadata: {
+          ...metadata,
+          edited_at: new Date().toISOString()
+        }
+      })
+      state.message = 'RTL edits saved.'
+    }
+  }catch(e){
+    state.message = `RTL save failed: ${e.message}`
+  }
+  state.tab = 'rtl'
+  renderProjectView(container, projectId, { onBack })
 }
 
 async function generateDesign(projectId, prompt, container){
@@ -205,17 +280,19 @@ function renderTabContent(projectId, state){
   if(state.tab === 'rtl'){
     return `
       <div class="workspace-actions">
-        <button id="explainBtn" class="secondary-button">Explain RTL</button>
-        <button id="docsBtn" class="secondary-button">Generate Docs</button>
+        <button type="button" id="saveRtlBtn" data-action="save-rtl" class="primary-button" ${rtl ? '' : 'disabled'}>Save RTL</button>
+        <button type="button" id="saveRtlCopyBtn" data-action="save-rtl-copy" class="secondary-button" ${rtl ? '' : 'disabled'}>Save as Copy</button>
+        <button type="button" id="explainBtn" class="secondary-button">Explain RTL</button>
+        <button type="button" id="docsBtn" class="secondary-button">Generate Docs</button>
       </div>
-      ${renderArtifactCode(rtl, 'Generated RTL will appear here.')}
+      ${renderRtlEditor(rtl)}
     `
   }
 
   if(state.tab === 'testbench'){
     return `
       <div class="workspace-actions">
-        <button id="regenTestbenchBtn" class="secondary-button">Regenerate Testbench</button>
+        <button type="button" id="regenTestbenchBtn" class="secondary-button">Regenerate Testbench</button>
       </div>
       ${renderArtifactCode(testbench, 'Generated testbench will appear here.')}
     `
@@ -227,8 +304,8 @@ function renderTabContent(projectId, state){
       <div class="sim-grid">
         <div>
           <div class="workspace-actions">
-            <button id="runSimBtn" class="primary-button" ${state.busy ? 'disabled' : ''}>Run Simulation</button>
-            <button id="debugBtn" class="secondary-button">How To Fix</button>
+            <button type="button" id="runSimBtn" class="primary-button" ${state.busy ? 'disabled' : ''}>Run Simulation</button>
+            <button type="button" id="debugBtn" class="secondary-button">How To Fix</button>
           </div>
           <pre id="liveSimLog" class="code-pane sim-log">${escapeHtml(log || 'Run a simulation to see logs.')}</pre>
         </div>
@@ -240,7 +317,7 @@ function renderTabContent(projectId, state){
   if(state.tab === 'docs'){
     return `
       <div class="workspace-actions">
-        <button id="docsBtn" class="secondary-button">Generate Docs</button>
+        <button type="button" id="docsBtn" class="secondary-button">Generate Docs</button>
       </div>
       ${renderArtifactCode(docs, 'Generated Markdown documentation will appear here.')}
     `
@@ -250,8 +327,8 @@ function renderTabContent(projectId, state){
     <div class="ai-grid">
       <div>
         <div class="workspace-actions">
-          <button id="explainBtn" class="secondary-button">Explain RTL</button>
-          <button id="debugBtn" class="secondary-button">How To Fix</button>
+          <button type="button" id="explainBtn" class="secondary-button">Explain RTL</button>
+          <button type="button" id="debugBtn" class="secondary-button">How To Fix</button>
         </div>
         <h3 class="content-heading">Explanation</h3>
         ${renderArtifactCode(explanation, 'Ask AI Copilot to explain the generated RTL.')}
@@ -265,18 +342,37 @@ function renderTabContent(projectId, state){
 }
 
 function attachWorkspaceHandlers(container, projectId, state, onBack){
+  if(container.workspaceActionHandler){
+    container.removeEventListener('click', container.workspaceActionHandler)
+  }
+  container.workspaceActionHandler = event=>{
+    const actionTarget = event.target.closest('[data-action]')
+    if(!actionTarget || !container.contains(actionTarget)) return
+    if(actionTarget.dataset.action === 'save-rtl'){
+      event.preventDefault()
+      saveRtlEdit(projectId, container, state, onBack, false)
+    }
+    if(actionTarget.dataset.action === 'save-rtl-copy'){
+      event.preventDefault()
+      saveRtlEdit(projectId, container, state, onBack, true)
+    }
+  }
+  container.addEventListener('click', container.workspaceActionHandler)
+
   container.querySelector('#backBtn')?.addEventListener('click', onBack)
   container.querySelector('#downloadAll')?.addEventListener('click', async ()=>{
     try{ await exportProjectZip(projectId) }catch(e){ state.message = `Export failed: ${e.message}`; renderProjectView(container, projectId, { onBack }) }
   })
   container.querySelectorAll('.tab-button').forEach(button=>{
     button.addEventListener('click', ()=>{
+      if(!confirmCleanRtl(container, projectId)) return
       state.tab = button.dataset.tab
       renderProjectView(container, projectId, { onBack })
     })
   })
   container.querySelectorAll('.file-item').forEach(button=>{
     button.addEventListener('click', ()=>{
+      if(!confirmCleanRtl(container, projectId)) return
       state.selectedArtifactId = button.dataset.id
       const artifact = projectModel.getArtifact(button.dataset.id)
       if(artifact?.type === 'testbench') state.tab = 'testbench'
@@ -336,12 +432,12 @@ export function renderProjectView(container, projectId, options={}){
   container.innerHTML = `
     <section class="studio-shell">
       <header class="studio-topbar">
-        <button id="backBtn" class="ghost-button">Projects</button>
+        <button type="button" id="backBtn" class="ghost-button">Projects</button>
         <div>
           <h1>FPGA Design Studio</h1>
           <p>Project: ${escapeHtml(project.name)}</p>
         </div>
-        <button id="downloadAll" class="secondary-button">Export ZIP</button>
+        <button type="button" id="downloadAll" class="secondary-button">Export ZIP</button>
       </header>
       <div class="project-layout">
         <aside class="documents-panel">
@@ -351,7 +447,7 @@ export function renderProjectView(container, projectId, options={}){
           </div>
           <div class="file-tree">
             ${artifacts.length === 0 ? '<p class="empty-copy">No files yet.</p>' : artifacts.map(artifact=>`
-              <button class="file-item" data-id="${artifact.id}">
+              <button type="button" class="file-item" data-id="${artifact.id}">
                 <span>${fileIcon(artifact.type)}</span>
                 <strong>${escapeHtml(artifact.filename)}</strong>
               </button>
