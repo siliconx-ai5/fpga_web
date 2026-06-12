@@ -1,6 +1,8 @@
 import projectModel from '../models/projectModel.js'
 import { renderEditor } from '../components/Editor.js'
 import { exportProjectZip } from '../lib/exportZip.js'
+import { renderRunHistory } from '../components/RunHistory.js'
+import { renderWaveformPreview } from '../components/WaveformPreview.js'
 
 export function renderProjectView(container, projectId){
   const project = projectModel.getProject(projectId)
@@ -14,10 +16,19 @@ export function renderProjectView(container, projectId){
         </div>
       </div>
       <div id="editorArea"></div>
+      <div id="runHistoryArea"></div>
+      <div id="waveformArea"></div>
     </div>
   `
   const editorArea = container.querySelector('#editorArea')
   renderEditor(editorArea, projectId)
+  
+  const runHistoryArea = container.querySelector('#runHistoryArea')
+  renderRunHistory(runHistoryArea)
+  
+  const waveformArea = container.querySelector('#waveformArea')
+  renderWaveformPreview(waveformArea, 'pass')
+  
   container.querySelector('#downloadAll').addEventListener('click', ()=>{
     try{ exportProjectZip(projectId) }catch(e){ alert('Export failed: ' + e.message) }
   })
