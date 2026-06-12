@@ -1,10 +1,38 @@
-// Minimal sql.js integration wrapper for MVP.
-// Attempts to load sql.js from CDN and create an in-memory DB.
-// If loading fails, the wrapper falls back to a no-op interface.
+// Minimal sql.js integration wrapper.
+// The database is stored as a base64 export in localStorage so sql.js data
+// survives page refreshes without requiring a server.
 
 let SQL = null
 let db = null
 let initialized = false
+const DB_KEY = 'fpga_web_v1:sqlite_db'
+
+function bytesToBase64(bytes){
+  let binary = ''
+  const chunkSize = 0x8000
+  for(let i = 0; i < bytes.length; i += chunkSize){
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(value){
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for(let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function persist(){
+  if(!initialized || !db) return false
+  try{
+    localStorage.setItem(DB_KEY, bytesToBase64(db.export()))
+    return true
+  }catch(e){
+    console.warn('failed to persist sqlite database:', e)
+    return false
+  }
+}
 
 export async function init(){
   if(initialized) return initialized
@@ -20,7 +48,8 @@ export async function init(){
       })
     }
     SQL = await window.initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` })
-    db = new SQL.Database()
+    const saved = localStorage.getItem(DB_KEY)
+    db = saved ? new SQL.Database(base64ToBytes(saved)) : new SQL.Database()
     initialized = true
     return true
   }catch(e){
@@ -34,6 +63,7 @@ export function exec(sql){
   if(!initialized || !db) return { error: 'sqlite not initialized' }
   try{
     const res = db.exec(sql)
+    persist()
     return res
   }catch(e){
     return { error: e.message }
@@ -62,4 +92,8 @@ export function exportBinary(){
   return data
 }
 
-export default { init, exec, run, exportBinary }
+export function save(){
+  return persist()
+}
+
+export default { init, exec, run, exportBinary, save }

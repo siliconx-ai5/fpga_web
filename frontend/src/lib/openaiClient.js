@@ -1,75 +1,250 @@
-// Mock OpenAI client for MVP. Uses stored API key if present, but returns deterministic mock outputs.
 import storage from './storage.js'
+import {
+  debugSystemPrompt,
+  debugUserPrompt,
+  docsSystemPrompt,
+  docsUserPrompt,
+  explanationSystemPrompt,
+  explanationUserPrompt,
+  rtlSystemPrompt,
+  rtlUserPrompt,
+  testbenchSystemPrompt,
+  testbenchUserPrompt
+} from '../prompts/index.js'
 
-function readApiKey(){
-  const s = storage.load('settings', {})
-  return s.api_key || null
+const DEFAULT_MODEL = 'gpt-5.5'
+const RESPONSES_URL = 'https://api.openai.com/v1/responses'
+
+function readSettings(){
+  return storage.load('settings', {})
 }
 
-function simpleModuleNameFromPrompt(prompt){
-  const m = prompt.match(/module\s+(\w+)/i)
-  return m ? m[1] : 'top_module'
+function readApiKey(){
+  const settings = readSettings()
+  return settings.api_key || null
+}
+
+function readModel(){
+  const settings = readSettings()
+  return settings.model || DEFAULT_MODEL
+}
+
+function moduleNameFromText(text){
+  const explicit = text.match(/module\s+([a-zA-Z_][a-zA-Z0-9_]*)/i)
+  if(explicit) return explicit[1]
+  if(/counter/i.test(text)) return /8[\s-]*bit/i.test(text) ? 'counter8' : 'counter'
+  if(/fifo/i.test(text)) return 'simple_fifo'
+  if(/uart/i.test(text)) return 'uart_core'
+  if(/pwm/i.test(text)) return 'pwm_generator'
+  return 'top_module'
+}
+
+export function suggestProjectName(prompt){
+  const moduleName = moduleNameFromText(prompt)
+  return moduleName.replace(/_/g, ' ').replace(/\b\w/g, ch=>ch.toUpperCase())
+}
+
+function extractResponseText(payload){
+  if(payload.output_text) return payload.output_text
+  const parts = []
+  for(const item of payload.output || []){
+    for(const content of item.content || []){
+      if(content.text) parts.push(content.text)
+      if(content.type === 'output_text' && content.text) parts.push(content.text)
+    }
+  }
+  return parts.join('\n').trim()
+}
+
+async function callResponses({ system, user, schema, schemaName }){
+  const apiKey = readApiKey()
+  if(!apiKey) throw new Error('OpenAI API key is required for live generation.')
+
+  const body = {
+    model: readModel(),
+    store: false,
+    input: [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ]
+  }
+
+  if(schema){
+    body.text = {
+      format: {
+        type: 'json_schema',
+        name: schemaName,
+        strict: true,
+        schema
+      }
+    }
+  }
+
+  const response = await fetch(RESPONSES_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  })
+
+  const payload = await response.json().catch(()=>({}))
+  if(!response.ok){
+    const message = payload.error?.message || `OpenAI request failed with HTTP ${response.status}`
+    throw new Error(message)
+  }
+  return extractResponseText(payload)
+}
+
+function rtlSchema(){
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      moduleName: { type: 'string' },
+      filename: { type: 'string' },
+      content: { type: 'string' },
+      assumptions: { type: 'array', items: { type: 'string' } },
+      warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['moduleName', 'filename', 'content', 'assumptions', 'warnings']
+  }
+}
+
+function testbenchSchema(){
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      filename: { type: 'string' },
+      content: { type: 'string' },
+      stimulusSummary: { type: 'string' },
+      expectedAssertions: { type: 'array', items: { type: 'string' } },
+      warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['filename', 'content', 'stimulusSummary', 'expectedAssertions', 'warnings']
+  }
+}
+
+function mockRTL(prompt){
+  const name = moduleNameFromText(prompt)
+  if(/counter/i.test(prompt)){
+    const width = /8[\s-]*bit/i.test(prompt) ? 8 : 4
+    return {
+      moduleName: name,
+      filename: `${name}.v`,
+      content: `module ${name} (\n  input wire clk,\n  input wire rst,\n  input wire en,\n  output reg [${width - 1}:0] count\n);\n  always @(posedge clk or posedge rst) begin\n    if (rst) begin\n      count <= ${width}'d0;\n    end else if (en) begin\n      count <= count + ${width}'d1;\n    end\n  end\nendmodule\n`,
+      assumptions: [`${width}-bit up counter`, 'Active-high asynchronous reset', 'Enable controls counting'],
+      warnings: ['Demo mode: no OpenAI API key was used.']
+    }
+  }
+
+  return {
+    moduleName: name,
+    filename: `${name}.v`,
+    content: `module ${name} (\n  input wire clk,\n  input wire rst,\n  input wire a,\n  input wire b,\n  output reg out\n);\n  always @(posedge clk or posedge rst) begin\n    if (rst) begin\n      out <= 1'b0;\n    end else begin\n      out <= a & b;\n    end\n  end\nendmodule\n`,
+    assumptions: ['Single clock named clk', 'Active-high reset named rst', 'Inputs are sampled on the rising clock edge'],
+    warnings: ['Demo mode: no OpenAI API key was used.']
+  }
+}
+
+function mockTestbench(rtl){
+  const moduleName = moduleNameFromText(rtl)
+  const isCounter = /count\s*\]/i.test(rtl) || /\bcount\b/i.test(rtl)
+  const content = isCounter
+    ? `module ${moduleName}_tb;\n  reg clk = 0;\n  reg rst = 1;\n  reg en = 0;\n  wire [7:0] count;\n\n  ${moduleName} dut(.clk(clk), .rst(rst), .en(en), .count(count));\n\n  always #5 clk = ~clk;\n\n  initial begin\n    #12 rst = 0;\n    en = 1;\n    #80;\n    if (count == 0) $display(\"ASSERT_FAIL: counter did not increment\");\n    else $display(\"ASSERT_PASS: counter incremented\");\n    $finish;\n  end\nendmodule\n`
+    : `module ${moduleName}_tb;\n  reg clk = 0;\n  reg rst = 1;\n  reg a = 0;\n  reg b = 0;\n  wire out;\n\n  ${moduleName} dut(.clk(clk), .rst(rst), .a(a), .b(b), .out(out));\n\n  always #5 clk = ~clk;\n\n  initial begin\n    #12 rst = 0;\n    a = 1;\n    b = 1;\n    #20;\n    if (out !== 1'b1) $display(\"ASSERT_FAIL: expected out high\");\n    else $display(\"ASSERT_PASS: out high when a and b are high\");\n    $finish;\n  end\nendmodule\n`
+
+  return {
+    filename: `${moduleName}_tb.v`,
+    content,
+    stimulusSummary: 'Reset release followed by representative input stimulus and a pass/fail display check.',
+    expectedAssertions: ['Generated testbench emits ASSERT_PASS or ASSERT_FAIL in the run log.'],
+    warnings: readApiKey() ? [] : ['Demo mode: no OpenAI API key was used.']
+  }
+}
+
+export async function generateRTLBundle(prompt){
+  if(!readApiKey()) return mockRTL(prompt)
+  const text = await callResponses({
+    schemaName: 'rtl_generation',
+    schema: rtlSchema(),
+    system: rtlSystemPrompt,
+    user: rtlUserPrompt(prompt)
+  })
+  return JSON.parse(text)
 }
 
 export async function generateRTL(prompt){
-  // For MVP, return a small mock Verilog module
-  const name = simpleModuleNameFromPrompt(prompt)
-  const rtl = `module ${name} (input clk, input rst, input a, input b, output out);\n  reg q;\n  always @(posedge clk) begin\n    if(rst) q <= 0; else q <= a & b;\n  end\n  assign out = q;\nendmodule\n`
-  return rtl
+  const result = await generateRTLBundle(prompt)
+  return result.content
+}
+
+export async function generateTestbenchBundle(rtl){
+  if(!readApiKey()) return mockTestbench(rtl)
+  const text = await callResponses({
+    schemaName: 'testbench_generation',
+    schema: testbenchSchema(),
+    system: testbenchSystemPrompt,
+    user: testbenchUserPrompt(rtl)
+  })
+  return JSON.parse(text)
 }
 
 export async function generateTestbench(rtl){
-  // naive testbench referencing the first module name
-  const m = rtl.match(/module\s+(\w+)/)
-  const name = m ? m[1] : 'top'
-  const tb = `// Mock testbench for ${name}\nmodule tb;\n  reg clk = 0; reg rst = 1; reg a=0; reg b=0; wire out;\n  ${name} dut(.clk(clk), .rst(rst), .a(a), .b(b), .out(out));\n  always #5 clk = ~clk;\n  initial begin\n    #10 rst = 0;\n    a = 1; b = 1;\n    #100 $display("TEST DONE"); $finish;\n  end\nendmodule\n`
-  return tb
+  const result = await generateTestbenchBundle(rtl)
+  return result.content
 }
 
 export async function explainRTL(rtl){
-  return `This module implements a simple register that captures the AND of inputs 'a' and 'b' on the rising edge of 'clk' and resets on 'rst'.`;
+  if(!readApiKey()){
+    const moduleName = moduleNameFromText(rtl)
+    return `### ${moduleName}\n\nThis RTL describes a simple clocked module with reset behavior. Signals are updated on the active clock edge, reset drives the outputs back to a known value, and the main behavior is intentionally small enough for the mock simulator.`
+  }
+  return callResponses({
+    system: explanationSystemPrompt,
+    user: explanationUserPrompt(rtl)
+  })
 }
 
 export async function debugSuggestions(rtl, tb, errorLog){
-  return [
-    '1. Check if all signals are properly initialized in the testbench',
-    '2. Verify that clock period matches design requirements',
-    '3. Add assertion checks to identify exact failure point',
-    '4. Review reset timing and initial conditions'
-  ].join('\n')
+  if(!readApiKey()){
+    return [
+      '### Debug Suggestions',
+      '',
+      '1. Check that reset is asserted long enough before stimulus begins.',
+      '2. Confirm that the testbench port names match the RTL module declaration.',
+      '3. Add a display or assertion near the failing time to inspect the expected output.',
+      '4. Verify clocked outputs are checked after a clock edge, not immediately after input changes.'
+    ].join('\n')
+  }
+  return callResponses({
+    system: debugSystemPrompt,
+    user: debugUserPrompt(rtl, tb, errorLog)
+  })
 }
 
 export async function generateDocs(rtl){
-  const m = rtl.match(/module\s+(\w+)/)
-  const name = m ? m[1] : 'module'
-  return `# ${name} Documentation
-
-## Overview
-This module was generated from natural language specification.
-
-## Ports
-- clk: Clock input
-- rst: Reset (active high)
-- a, b: Input signals
-- out: Output signal
-
-## Functionality
-Captures the AND of inputs on clock edge when not in reset.
-
-## Usage Example
-\`\`\`verilog
-${name} dut (
-  .clk(clk),
-  .rst(rst),
-  .a(a),
-  .b(b),
-  .out(out)
-);
-\`\`\`
-
-## Testing
-Run the provided testbench to verify functionality.
-`
+  if(!readApiKey()){
+    const moduleName = moduleNameFromText(rtl)
+    return `# ${moduleName}\n\n## Overview\nGenerated RTL module for the current FPGA Web project.\n\n## Interface\nReview the Verilog port list in the RTL tab for signal directions and widths.\n\n## Usage Example\n\n\`\`\`verilog\n${moduleName} dut (/* connect ports here */);\n\`\`\`\n\n## Verification\nRun the generated testbench from the Simulator tab and inspect the waveform preview and run log.`
+  }
+  return callResponses({
+    system: docsSystemPrompt,
+    user: docsUserPrompt(rtl)
+  })
 }
 
-export default { generateRTL, generateTestbench, explainRTL, debugSuggestions, generateDocs, readApiKey }
+export default {
+  generateRTL,
+  generateRTLBundle,
+  generateTestbench,
+  generateTestbenchBundle,
+  explainRTL,
+  debugSuggestions,
+  generateDocs,
+  readApiKey,
+  readModel,
+  suggestProjectName
+}

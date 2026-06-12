@@ -1,29 +1,30 @@
-import storage from '../lib/storage.js'
+import projectModel from '../models/projectModel.js'
 
-export function renderRunHistory(container){
-  const runs = storage.load('runs', [])
+export function renderRunHistory(container, projectId, onSelectRun=()=>{}){
+  const runs = projectModel.listRuns(projectId)
   container.innerHTML = `
-    <div class="p-4 bg-white rounded shadow mt-4">
-      <h3 class="font-medium mb-3">Run History</h3>
-      ${runs.length === 0 ? '<p class="text-slate-500 text-sm">No runs yet</p>' : ''}
-      <div id="runsList" class="space-y-2">
-        ${runs.slice(-10).reverse().map(r=>`
-          <div class="p-2 border rounded hover:bg-slate-50 cursor-pointer" data-id="${r.id}">
-            <div class="flex justify-between items-center">
-              <span class="text-sm font-medium ${r.status==='pass'?'text-green-600':'text-red-600'}">${r.status.toUpperCase()}</span>
-              <span class="text-xs text-slate-500">${new Date(r.created_at).toLocaleString()}</span>
-            </div>
-            <pre class="text-xs mt-1 text-slate-600 hidden run-logs">${r.logs.join('\n')}</pre>
-          </div>
+    <div class="run-history">
+      <div class="panel-title-row">
+        <h3>Run History</h3>
+        <span>${runs.length} runs</span>
+      </div>
+      ${runs.length === 0 ? '<p class="empty-copy">No simulations have been run for this project.</p>' : ''}
+      <div class="run-list">
+        ${runs.slice(-8).reverse().map(r=>`
+          <button class="run-item" data-id="${r.id}">
+            <span class="run-status ${r.status === 'passed' ? 'ok' : 'bad'}">${r.status}</span>
+            <span>${r.summary || 'Simulation complete'}</span>
+            <small>${new Date(r.created_at).toLocaleString()}</small>
+          </button>
         `).join('')}
       </div>
     </div>
   `
-  
-  container.querySelectorAll('#runsList > div').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const logs = el.querySelector('.run-logs')
-      logs.classList.toggle('hidden')
+
+  container.querySelectorAll('.run-item').forEach(button=>{
+    button.addEventListener('click', ()=>{
+      const run = runs.find(item=>item.id === button.dataset.id)
+      if(run) onSelectRun(run)
     })
   })
 }

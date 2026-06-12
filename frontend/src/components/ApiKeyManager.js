@@ -3,22 +3,28 @@ import storage from '../lib/storage.js'
 export function renderApiKeyManager(container){
   const settings = storage.load('settings', {})
   const apiKey = settings.api_key || ''
+  const model = settings.model || 'gpt-5.5'
   container.innerHTML = `
-    <div class="p-4 bg-white rounded shadow">
-      <h2 class="font-medium mb-2">OpenAI API Key</h2>
-      <p class="text-sm text-slate-500 mb-2">Store your OpenAI API key in localStorage (development only).</p>
+    <div class="side-panel">
+      <div class="panel-title-row">
+        <h2>AI Settings</h2>
+        <span>${apiKey ? 'Live' : 'Demo'}</span>
+      </div>
+      <p class="muted-copy">Keys are stored in browser localStorage for this prototype.</p>
       <label for="apiKeyInput" class="sr-only">API Key</label>
       <input 
         id="apiKeyInput" 
         type="password"
-        class="border p-2 w-full mb-2 rounded focus:ring-2 focus:ring-sky-500 focus:border-sky-500" 
+        class="studio-input" 
         placeholder="sk-..." 
         value="${apiKey}"
         aria-label="OpenAI API Key"
       />
-      <div class="flex gap-2">
-        <button id="saveKeyBtn" class="px-3 py-1 bg-sky-600 text-white rounded hover:bg-sky-700 focus:ring-2 focus:ring-sky-500">Save</button>
-        <button id="clearKeyBtn" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 focus:ring-2 focus:ring-gray-400">Clear</button>
+      <label for="modelInput" class="field-label">Model</label>
+      <input id="modelInput" class="studio-input" value="${model}" aria-label="OpenAI model" />
+      <div class="button-row">
+        <button id="saveKeyBtn" class="secondary-button">Save</button>
+        <button id="clearKeyBtn" class="ghost-button">Clear</button>
       </div>
     </div>
   `
@@ -27,17 +33,18 @@ export function renderApiKeyManager(container){
   const input = container.querySelector('#apiKeyInput')
   saveBtn.addEventListener('click', ()=>{
     const v = input.value.trim()
+    const modelValue = container.querySelector('#modelInput').value.trim()
     const s = storage.load('settings', {})
     s.api_key = v
+    s.model = modelValue || 'gpt-5.5'
     storage.save('settings', s)
-    alert('API key saved to localStorage')
+    renderApiKeyManager(container)
   })
   clearBtn.addEventListener('click', ()=>{
     const s = storage.load('settings', {})
     delete s.api_key
     storage.save('settings', s)
-    input.value = ''
-    alert('API key cleared')
+    renderApiKeyManager(container)
   })
 }
 

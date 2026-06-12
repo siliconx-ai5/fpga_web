@@ -1,40 +1,137 @@
 import './styles.css'
 
-import { renderProjectList } from './pages/ProjectList.js'
 import { renderProjectView } from './pages/ProjectView.js'
 import { renderApiKeyManager } from './components/ApiKeyManager.js'
 import projectModel from './models/projectModel.js'
+import openaiClient from './lib/openaiClient.js'
 
 const app = document.getElementById('app')
+let selectedProjectId = null
 
-app.innerHTML = `
-  <main class="min-h-screen bg-slate-50 p-4 md:p-6">
-    <header class="mb-6">
-      <h1 class="text-2xl md:text-3xl font-bold text-slate-800">FPGA Web Tool</h1>
-      <p class="text-sm text-slate-600 mt-1">Mock FPGA design tool with AI assistance</p>
-    </header>
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6">
-      <aside id="left" class="lg:col-span-1 space-y-4"></aside>
-      <section id="main" class="lg:col-span-3"></section>
+function escapeHtml(value=''){
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function renderProjectRail(){
+  const mount = document.getElementById('projectsRail')
+  const projects = projectModel.listProjects()
+  mount.innerHTML = `
+    <div class="side-panel">
+      <div class="panel-title-row">
+        <h2>Projects</h2>
+        <button id="newProjectBtn" class="mini-button">New</button>
+      </div>
+      <div class="project-list">
+        ${projects.length === 0 ? '<p class="empty-copy">Create a project from the generator.</p>' : projects.map(project=>`
+          <button class="project-link ${project.id === selectedProjectId ? 'active' : ''}" data-id="${project.id}">
+            <strong>${escapeHtml(project.name)}</strong>
+            <small>${new Date(project.updated_at).toLocaleDateString()}</small>
+          </button>
+        `).join('')}
+      </div>
     </div>
-  </main>
-`
+  `
+  mount.querySelector('#newProjectBtn')?.addEventListener('click', ()=>{
+    const name = window.prompt('Project name')
+    if(!name) return
+    const project = projectModel.createProject(name)
+    selectedProjectId = project.id
+    renderApp()
+  })
+  mount.querySelectorAll('.project-link').forEach(button=>{
+    button.addEventListener('click', ()=>{
+      selectedProjectId = button.dataset.id
+      renderApp()
+    })
+  })
+}
 
-const left = document.getElementById('left')
-const main = document.getElementById('main')
+function renderLanding(){
+  const main = document.getElementById('mainPanel')
+  const projects = projectModel.listProjects()
+  main.innerHTML = `
+    <section class="landing-panel">
+      <div class="landing-copy">
+        <span class="eyebrow">Mock FPGA flow, real AI workflow</span>
+        <h1>FPGA Design Studio</h1>
+        <p>Describe a small hardware module and generate a project with RTL, a testbench, simulation traces, and AI-assisted documentation.</p>
+      </div>
+      <form id="landingPromptForm" class="landing-prompt">
+        <span class="prompt-plus">+</span>
+        <input id="landingPromptInput" placeholder="Describe what you would like to generate" autofocus />
+        <button class="generate-button">Generate</button>
+      </form>
+      ${projects.length ? `
+        <div class="recent-projects">
+          ${projects.slice(0, 3).map(project=>`
+            <button class="recent-card" data-id="${project.id}">
+              <span>Project</span>
+              <strong>${escapeHtml(project.name)}</strong>
+              <small>${new Date(project.updated_at).toLocaleString()}</small>
+            </button>
+          `).join('')}
+        </div>
+      ` : ''}
+    </section>
+  `
 
-function openProject(id){ renderProjectView(main, id) }
+  main.querySelector('#landingPromptForm').addEventListener('submit', event=>{
+    event.preventDefault()
+    const input = main.querySelector('#landingPromptInput')
+    const prompt = input.value.trim()
+    if(!prompt) return
+    const name = openaiClient.suggestProjectName(prompt)
+    const project = projectModel.createProject(name, prompt)
+    selectedProjectId = project.id
+    renderApp({ initialPrompt: prompt })
+  })
 
-renderProjectList(left, openProject)
-renderApiKeyManager(left)
+  main.querySelectorAll('.recent-card').forEach(button=>{
+    button.addEventListener('click', ()=>{
+      selectedProjectId = button.dataset.id
+      renderApp()
+    })
+  })
+}
 
-// initialize sqlite in background (if available)
-projectModel.initDb().then(ok=>{
-  if(ok) console.log('sqlite initialized and ready')
-  else console.log('sqlite not available; using localStorage fallback')
-})
+function renderApp(options={}){
+  app.innerHTML = `
+    <main class="app-frame">
+      <aside class="app-sidebar">
+        <div class="brand-lockup">
+          <span class="brand-mark">FP</span>
+          <div>
+            <strong>FPGA Studio</strong>
+            <small>Design, simulate, explain</small>
+          </div>
+        </div>
+        <div id="projectsRail"></div>
+        <div id="apiKeyRail"></div>
+      </aside>
+      <section id="mainPanel" class="app-main"></section>
+    </main>
+  `
+  renderProjectRail()
+  renderApiKeyManager(document.getElementById('apiKeyRail'))
 
-// show empty main
-main.innerHTML = `<div class="p-4 bg-white rounded shadow">Select or create a project to begin.</div>`
+  if(selectedProjectId){
+    renderProjectView(document.getElementById('mainPanel'), selectedProjectId, {
+      initialPrompt: options.initialPrompt,
+      onBack: ()=>{
+        selectedProjectId = null
+        renderApp()
+      }
+    })
+  }else{
+    renderLanding()
+  }
+}
+
+projectModel.initDb().finally(()=>renderApp())
 
 export default app

@@ -72,7 +72,7 @@ export function renderEditor(container, projectId){
     notify.notify('Simulation finished', `Status: ${result.status}`)
     
     // If failed, offer debug suggestions
-    if(result.status === 'fail'){
+    if(result.status === 'failed'){
       const suggestions = await openaiClient.debugSuggestions(rtl, tb, result.logs.join('\n'))
       const aiResp = container.querySelector('#aiResponse')
       aiResp.classList.remove('hidden')
@@ -96,7 +96,7 @@ export function renderEditor(container, projectId){
     const rtl = artifacts[artifacts.length-1].content
     const docs = await openaiClient.generateDocs(rtl)
     const filename = `docs_${Date.now()}.md`
-    projectModel.saveArtifact(projectId, 'doc', filename, docs)
+    projectModel.saveArtifact(projectId, 'documentation', filename, docs)
     renderEditor(container, projectId)
     alert('Documentation generated and saved')
   })
