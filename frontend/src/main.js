@@ -3,6 +3,7 @@ import './styles.css'
 import { renderProjectList } from './pages/ProjectList.js'
 import { renderProjectView } from './pages/ProjectView.js'
 import { renderApiKeyManager } from './components/ApiKeyManager.js'
+import projectModel from './models/projectModel.js'
 
 const app = document.getElementById('app')
 
@@ -22,6 +23,12 @@ function openProject(id){ renderProjectView(main, id) }
 
 renderProjectList(left, openProject)
 renderApiKeyManager(left)
+
+// initialize sqlite in background (if available)
+projectModel.initDb().then(ok=>{
+  if(ok) console.log('sqlite initialized and ready')
+  else console.log('sqlite not available; using localStorage fallback')
+})
 
 // show empty main
 main.innerHTML = `<div class="p-4 bg-white rounded shadow">Select or create a project to begin.</div>`
