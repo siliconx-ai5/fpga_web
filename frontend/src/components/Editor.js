@@ -9,16 +9,19 @@ export function renderEditor(container, projectId){
     <div class="p-4 bg-white rounded shadow">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-medium">Artifacts</h3>
-        <div>
-          <button id="genRTLBtn" class="px-2 py-1 bg-green-600 text-white rounded mr-2">Generate RTL</button>
-          <button id="genTBBtn" class="px-2 py-1 bg-amber-600 text-white rounded mr-2">Generate Testbench</button>
-          <button id="runSimBtn" class="px-2 py-1 bg-indigo-600 text-white rounded">Run Simulation</button>
+        <div class="flex gap-2 flex-wrap">
+          <button id="genRTLBtn" class="px-2 py-1 bg-green-600 text-white rounded text-sm">Generate RTL</button>
+          <button id="genTBBtn" class="px-2 py-1 bg-amber-600 text-white rounded text-sm">Generate Testbench</button>
+          <button id="runSimBtn" class="px-2 py-1 bg-indigo-600 text-white rounded text-sm">Run Simulation</button>
+          <button id="explainBtn" class="px-2 py-1 bg-purple-600 text-white rounded text-sm">Explain</button>
+          <button id="genDocsBtn" class="px-2 py-1 bg-teal-600 text-white rounded text-sm">Generate Docs</button>
         </div>
       </div>
       <ul id="artList" class="mb-3">
         ${artifacts.map(a=>`<li class="py-1 border-b"><a href="#" data-id="${a.id}" class="text-sky-600">${a.filename} (${a.type})</a></li>`).join('')}
       </ul>
       <pre id="artContent" class="p-3 bg-slate-50 rounded h-56 overflow-auto"></pre>
+      <div id="aiResponse" class="mt-2 p-3 bg-blue-50 rounded hidden"></div>
     </div>
   `
 
@@ -26,7 +29,7 @@ export function renderEditor(container, projectId){
   artList.forEach(a=> a.addEventListener('click', (e)=>{ e.preventDefault(); const art = projectModel.getArtifact(a.dataset.id); container.querySelector('#artContent').textContent = art.content }))
 
   container.querySelector('#genRTLBtn').addEventListener('click', async ()=>{
-    const prompt = prompt('Describe the hardware module (natural language)')
+    const prompt = window.prompt('Describe the hardware module (natural language)')
     if(!prompt) return
     const rtl = await openaiClient.generateRTL(prompt)
     const filename = `generated_${Date.now()}.v`
@@ -41,7 +44,7 @@ export function renderEditor(container, projectId){
     let rtl = ''
     if(artifacts.length) rtl = artifacts[artifacts.length-1].content
     if(!rtl){
-      rtl = prompt('No RTL found. Paste RTL or cancel to abort')
+      rtl = window.prompt('No RTL found. Paste RTL or cancel to abort')
       if(!rtl) return
     }
     const tb = await openaiClient.generateTestbench(rtl)
@@ -67,6 +70,35 @@ export function renderEditor(container, projectId){
     const result = await simulator.runSimulation(rtl, tb, onProgress)
     logArea.textContent += 'Simulation finished: ' + result.status + '\n'
     notify.notify('Simulation finished', `Status: ${result.status}`)
+    
+    // If failed, offer debug suggestions
+    if(result.status === 'fail'){
+      const suggestions = await openaiClient.debugSuggestions(rtl, tb, result.logs.join('\n'))
+      const aiResp = container.querySelector('#aiResponse')
+      aiResp.classList.remove('hidden')
+      aiResp.innerHTML = `<strong>Debug Suggestions:</strong><pre class="mt-2 whitespace-pre-wrap">${suggestions}</pre>`
+    }
+  })
+
+  container.querySelector('#explainBtn').addEventListener('click', async ()=>{
+    const artifacts = projectModel.listArtifacts(projectId).filter(a=>a.type==='rtl')
+    if(!artifacts.length){ alert('No RTL found to explain'); return }
+    const rtl = artifacts[artifacts.length-1].content
+    const explanation = await openaiClient.explainRTL(rtl)
+    const aiResp = container.querySelector('#aiResponse')
+    aiResp.classList.remove('hidden')
+    aiResp.innerHTML = `<strong>Explanation:</strong><p class="mt-2">${explanation}</p>`
+  })
+
+  container.querySelector('#genDocsBtn').addEventListener('click', async ()=>{
+    const artifacts = projectModel.listArtifacts(projectId).filter(a=>a.type==='rtl')
+    if(!artifacts.length){ alert('No RTL found to document'); return }
+    const rtl = artifacts[artifacts.length-1].content
+    const docs = await openaiClient.generateDocs(rtl)
+    const filename = `docs_${Date.now()}.md`
+    projectModel.saveArtifact(projectId, 'doc', filename, docs)
+    renderEditor(container, projectId)
+    alert('Documentation generated and saved')
   })
 }
 

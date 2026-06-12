@@ -30,4 +30,46 @@ export async function explainRTL(rtl){
   return `This module implements a simple register that captures the AND of inputs 'a' and 'b' on the rising edge of 'clk' and resets on 'rst'.`;
 }
 
-export default { generateRTL, generateTestbench, explainRTL, readApiKey }
+export async function debugSuggestions(rtl, tb, errorLog){
+  return [
+    '1. Check if all signals are properly initialized in the testbench',
+    '2. Verify that clock period matches design requirements',
+    '3. Add assertion checks to identify exact failure point',
+    '4. Review reset timing and initial conditions'
+  ].join('\n')
+}
+
+export async function generateDocs(rtl){
+  const m = rtl.match(/module\s+(\w+)/)
+  const name = m ? m[1] : 'module'
+  return `# ${name} Documentation
+
+## Overview
+This module was generated from natural language specification.
+
+## Ports
+- clk: Clock input
+- rst: Reset (active high)
+- a, b: Input signals
+- out: Output signal
+
+## Functionality
+Captures the AND of inputs on clock edge when not in reset.
+
+## Usage Example
+\`\`\`verilog
+${name} dut (
+  .clk(clk),
+  .rst(rst),
+  .a(a),
+  .b(b),
+  .out(out)
+);
+\`\`\`
+
+## Testing
+Run the provided testbench to verify functionality.
+`
+}
+
+export default { generateRTL, generateTestbench, explainRTL, debugSuggestions, generateDocs, readApiKey }
