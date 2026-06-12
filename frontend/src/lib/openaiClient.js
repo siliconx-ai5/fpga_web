@@ -56,6 +56,53 @@ function extractResponseText(payload){
   return parts.join('\n').trim()
 }
 
+function extractJsonObject(text){
+  const trimmed = String(text || '')
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim()
+
+  try{
+    return JSON.parse(trimmed)
+  }catch(e){
+    // Continue below: some model responses contain a valid JSON object followed
+    // by prose. Recover the first balanced object instead of failing the flow.
+  }
+
+  const start = trimmed.indexOf('{')
+  if(start === -1) throw new Error('AI response did not contain a JSON object.')
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for(let i = start; i < trimmed.length; i += 1){
+    const ch = trimmed[i]
+    if(inString){
+      if(escaped){
+        escaped = false
+      }else if(ch === '\\'){
+        escaped = true
+      }else if(ch === '"'){
+        inString = false
+      }
+      continue
+    }
+    if(ch === '"'){
+      inString = true
+    }else if(ch === '{'){
+      depth += 1
+    }else if(ch === '}'){
+      depth -= 1
+      if(depth === 0){
+        return JSON.parse(trimmed.slice(start, i + 1))
+      }
+    }
+  }
+
+  throw new Error('AI response contained incomplete JSON.')
+}
+
 async function callResponses({ system, user, schema, schemaName }){
   const apiKey = readApiKey()
   if(!apiKey) throw new Error('OpenAI API key is required for live generation.')
@@ -131,11 +178,14 @@ function mockRTL(prompt){
   const name = moduleNameFromText(prompt)
   if(/counter/i.test(prompt)){
     const width = /8[\s-]*bit/i.test(prompt) ? 8 : 4
+    const syncReset = /synchronous\s+reset/i.test(prompt)
+    const resetSensitivity = syncReset ? 'posedge clk' : 'posedge clk or posedge rst'
+    const resetNote = syncReset ? 'Synchronous active-high reset' : 'Active-high asynchronous reset'
     return {
       moduleName: name,
       filename: `${name}.v`,
-      content: `module ${name} (\n  input wire clk,\n  input wire rst,\n  input wire en,\n  output reg [${width - 1}:0] count\n);\n  always @(posedge clk or posedge rst) begin\n    if (rst) begin\n      count <= ${width}'d0;\n    end else if (en) begin\n      count <= count + ${width}'d1;\n    end\n  end\nendmodule\n`,
-      assumptions: [`${width}-bit up counter`, 'Active-high asynchronous reset', 'Enable controls counting'],
+      content: `module ${name} (\n  input wire clk,\n  input wire rst,\n  input wire en,\n  output reg [${width - 1}:0] count\n);\n  always @(${resetSensitivity}) begin\n    if (rst) begin\n      count <= ${width}'d0;\n    end else if (en) begin\n      if (count == ${width}'h${(2 ** width - 1).toString(16)}) begin\n        count <= ${width}'d0;\n      end else begin\n        count <= count + ${width}'d1;\n      end\n    end\n  end\nendmodule\n`,
+      assumptions: [`${width}-bit up counter`, resetNote, 'Enable controls counting', `Wraps to zero after ${2 ** width - 1}`],
       warnings: ['Demo mode: no OpenAI API key was used.']
     }
   }
@@ -173,7 +223,7 @@ export async function generateRTLBundle(prompt){
     system: rtlSystemPrompt,
     user: rtlUserPrompt(prompt)
   })
-  return JSON.parse(text)
+  return extractJsonObject(text)
 }
 
 export async function generateRTL(prompt){
@@ -189,7 +239,7 @@ export async function generateTestbenchBundle(rtl){
     system: testbenchSystemPrompt,
     user: testbenchUserPrompt(rtl)
   })
-  return JSON.parse(text)
+  return extractJsonObject(text)
 }
 
 export async function generateTestbench(rtl){
