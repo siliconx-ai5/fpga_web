@@ -1,15 +1,69 @@
-# Quickstart Validation Guide: Mock FPGA Web Tool
+# Quick Start Guide: Mock FPGA Web Tool
 
-## Prerequisites
+## For End Users
 
-- Node.js LTS
-- Modern Chromium-based browser for Playwright validation
-- OpenAI API key for AI generation scenarios
+### Prerequisites
 
-## Setup
+- Modern web browser (Chrome, Firefox, Edge, Safari)
+- OpenAI API key (optional - mock mode works without it)
+
+### Getting Started
+
+1. **Access the Application**
+   - For development: `cd frontend && npm install && npm run dev`
+   - Open `http://localhost:5173/` in your browser
+
+2. **Configure API Key** (Optional)
+   - In the left sidebar, find "OpenAI API Key" section
+   - Enter your key and click "Save"
+   - ⚠️ **Security Note**: Keys are stored in localStorage (development only)
+
+3. **Create Your First Project**
+   - Click "New" in the Projects section
+   - Enter a name (e.g., "My Counter")
+   - Click on the project to open it
+
+4. **Generate RTL**
+   - Click "Generate RTL"
+   - Describe your module: "Create an 8-bit counter with enable and async reset"
+   - View the generated Verilog in the artifacts list
+
+5. **Generate Testbench**
+   - Click "Generate Testbench"
+   - Testbench is auto-created from your RTL
+
+6. **Run Simulation**
+   - Click "Run Simulation"
+   - Allow notifications when prompted
+   - Watch progress in the log area
+   - Get notification on completion
+
+7. **Use AI Features**
+   - **Explain**: Click to understand your RTL
+   - **Generate Docs**: Create module documentation
+   - Debug suggestions appear automatically on simulation failures
+
+8. **Export Your Work**
+   - Click "Download ZIP" to save all artifacts
+
+### Key Features
+
+- 🎯 **Natural Language RTL**: Describe hardware in plain English
+- 🧪 **Instant Simulation**: Mock WASM simulator with browser notifications
+- 🤖 **AI Assistant**: Explain, debug, and document your designs
+- 💾 **Local Storage**: sql.js (WASM) or localStorage fallback
+- 📦 **Export**: Download projects as ZIP files
+
+## For Developers & Validators
+
+### Development Setup
 
 ```bash
+# Install dependencies
+cd frontend
 npm install
+
+# Start dev server
 npm run dev
 ```
 
