@@ -89,7 +89,7 @@ description: "Task list for Mock FPGA Web Tool"
 - [X] T030 [P] Implement export ZIP for a project (`frontend/src/lib/exportZip.js`) exporting artifacts and run logs
 - [X] T031 [P] Add unit/smoke tests for core modules (db, openaiClient, simulator) in `frontend/tests/`
 - [X] T032 Update `docs/quickstart.md` with steps to run the frontend dev server and demo flows
-- [ ] T033 Accessibility and basic responsive adjustments to the UI
+- [X] T033 Accessibility and basic responsive adjustments to the UI
 - [X] T034 [P] Add error handling and user-facing messages for `localStorage`/sql.js failures
 - [X] T035 Security note: add a `README.md` section explaining `localStorage` API key implications and how to clear keys
 
