@@ -1,5 +1,7 @@
 import openaiClient from '../lib/openaiClient.js'
 import projectModel from '../models/projectModel.js'
+import simulator from '../lib/simulator/index.js'
+import notify from '../lib/notify.js'
 
 export function renderEditor(container, projectId){
   const artifacts = projectModel.listArtifacts(projectId)
@@ -9,7 +11,8 @@ export function renderEditor(container, projectId){
         <h3 class="font-medium">Artifacts</h3>
         <div>
           <button id="genRTLBtn" class="px-2 py-1 bg-green-600 text-white rounded mr-2">Generate RTL</button>
-          <button id="genTBBtn" class="px-2 py-1 bg-amber-600 text-white rounded">Generate Testbench</button>
+          <button id="genTBBtn" class="px-2 py-1 bg-amber-600 text-white rounded mr-2">Generate Testbench</button>
+          <button id="runSimBtn" class="px-2 py-1 bg-indigo-600 text-white rounded">Run Simulation</button>
         </div>
       </div>
       <ul id="artList" class="mb-3">
@@ -46,6 +49,24 @@ export function renderEditor(container, projectId){
     projectModel.saveArtifact(projectId, 'testbench', filename, tb)
     renderEditor(container, projectId)
     alert('Testbench generated and saved')
+  })
+
+  container.querySelector('#runSimBtn').addEventListener('click', async ()=>{
+    // find latest RTL and testbench
+    const rts = projectModel.listArtifacts(projectId).filter(a=>a.type==='rtl')
+    const tbs = projectModel.listArtifacts(projectId).filter(a=>a.type==='testbench')
+    let rtl = rts.length ? rts[rts.length-1].content : ''
+    let tb = tbs.length ? tbs[tbs.length-1].content : ''
+    if(!rtl){ alert('No RTL found; generate or paste RTL first'); return }
+    if(!tb){ if(!confirm('No testbench found. Run with empty testbench?')) return }
+    // request notification permission
+    notify.requestPermission()
+    const logArea = container.querySelector('#artContent')
+    logArea.textContent = 'Starting simulation...\n'
+    const onProgress = (msg)=>{ logArea.textContent += msg + '\n' }
+    const result = await simulator.runSimulation(rtl, tb, onProgress)
+    logArea.textContent += 'Simulation finished: ' + result.status + '\n'
+    notify.notify('Simulation finished', `Status: ${result.status}`)
   })
 }
 
